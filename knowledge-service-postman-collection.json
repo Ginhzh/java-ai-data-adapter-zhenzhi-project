@@ -1,0 +1,1233 @@
+{
+	"info": {
+		"_postman_id": "knowledge-service-collection-v1",
+		"name": "知识库服务 Java版本 API Collection",
+		"description": "基于Spring Boot的知识库管理服务API接口集合\n包含数据统计、健康检查、缓存管理、消息处理、角色权限管理等功能",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "knowledge-service"
+	},
+	"item": [
+		{
+			"name": "数据统计接口",
+			"item": [
+				{
+					"name": "获取每日接入统计",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/daily?startDate=2024-01-01&endDate=2024-12-31",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"daily"
+							],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "开始日期 (yyyy-MM-dd格式)"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"description": "结束日期 (yyyy-MM-dd格式)"
+								}
+							]
+						},
+						"description": "获取指定日期范围内的每日接入统计数据"
+					}
+				},
+				{
+					"name": "获取汇总统计",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/summary?days=30&startDate=2024-01-01&endDate=2024-12-31",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"summary"
+							],
+							"query": [
+								{
+									"key": "days",
+									"value": "30",
+									"description": "天数，默认30天"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "开始日期"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"description": "结束日期"
+								}
+							]
+						},
+						"description": "获取汇总统计数据"
+					}
+				},
+				{
+					"name": "获取接入数据名称列表",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/data-names?limit=100&offset=0&systemName=WPROS&startDate=2024-01-01&endDate=2024-12-31",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"data-names"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "100",
+									"description": "限制数量，默认100"
+								},
+								{
+									"key": "offset",
+									"value": "0",
+									"description": "偏移量，默认0"
+								},
+								{
+									"key": "systemName",
+									"value": "WPROS",
+									"description": "系统名称"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "开始日期"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"description": "结束日期"
+								}
+							]
+						},
+						"description": "获取接入数据名称列表"
+					}
+				},
+				{
+					"name": "获取未成功接入数据",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/failed-ingestion?limit=100&offset=0&systemName=WPROS&startDate=2024-01-01&endDate=2024-12-31",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"failed-ingestion"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "100",
+									"description": "限制数量，默认100"
+								},
+								{
+									"key": "offset",
+									"value": "0",
+									"description": "偏移量，默认0"
+								},
+								{
+									"key": "systemName",
+									"value": "WPROS",
+									"description": "系统名称"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "开始日期"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"description": "结束日期"
+								}
+							]
+						},
+						"description": "获取未成功接入的数据列表"
+					}
+				},
+				{
+					"name": "根据文件编号查询状态",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/file-status/{{fileNumber}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"file-status",
+								"{{fileNumber}}"
+							]
+						},
+						"description": "根据文件编号查询文件状态"
+					}
+				},
+				{
+					"name": "根据文件名查询状态",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/file-status?fileName=test.pdf",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"file-status"
+							],
+							"query": [
+								{
+									"key": "fileName",
+									"value": "test.pdf",
+									"description": "文件名"
+								}
+							]
+						},
+						"description": "根据文件名查询文件状态"
+					}
+				},
+				{
+					"name": "获取文件权限变更统计",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/file-permission?startDate=2024-01-01&endDate=2024-12-31",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"file-permission"
+							],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "开始日期"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"description": "结束日期"
+								}
+							]
+						},
+						"description": "获取文件权限变更统计数据"
+					}
+				},
+				{
+					"name": "获取角色用户统计",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/role-user?startDate=2024-01-01&endDate=2024-12-31",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"role-user"
+							],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "开始日期"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"description": "结束日期"
+								}
+							]
+						},
+						"description": "获取角色用户统计数据"
+					}
+				},
+				{
+					"name": "获取综合统计",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/comprehensive?startDate=2024-01-01&endDate=2024-12-31&days=30&systemName=WPROS",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"comprehensive"
+							],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "开始日期"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"description": "结束日期"
+								},
+								{
+									"key": "days",
+									"value": "30",
+									"description": "天数，默认30"
+								},
+								{
+									"key": "systemName",
+									"value": "WPROS",
+									"description": "系统名称"
+								}
+							]
+						},
+						"description": "获取综合统计数据"
+					}
+				},
+				{
+					"name": "获取文件删除统计",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/file-deletion?limit=100&offset=0&systemName=WPROS&startDate=2024-01-01&endDate=2024-12-31",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"file-deletion"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "100",
+									"description": "限制数量，默认100"
+								},
+								{
+									"key": "offset",
+									"value": "0",
+									"description": "偏移量，默认0"
+								},
+								{
+									"key": "systemName",
+									"value": "WPROS",
+									"description": "系统名称"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "开始日期"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"description": "结束日期"
+								}
+							]
+						},
+						"description": "获取文件删除统计数据"
+					}
+				},
+				{
+					"name": "获取系统每日统计",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/statistics/system-daily",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"statistics",
+								"system-daily"
+							]
+						},
+						"description": "获取系统每日统计数据"
+					}
+				}
+			],
+			"description": "数据统计相关接口，包含各种统计查询功能"
+		},
+		{
+			"name": "缓存管理接口",
+			"item": [
+				{
+					"name": "获取文档检查缓存信息",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/cache/document-check/{{zhenzhiFileId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cache",
+								"document-check",
+								"{{zhenzhiFileId}}"
+							]
+						},
+						"description": "获取指定文档的检查缓存信息"
+					}
+				},
+				{
+					"name": "清理指定文档检查缓存",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/cache/document-check/{{zhenzhiFileId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cache",
+								"document-check",
+								"{{zhenzhiFileId}}"
+							]
+						},
+						"description": "清理指定文档的检查缓存"
+					}
+				},
+				{
+					"name": "批量清理文档检查缓存",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"zhenzhiFileIds\": [\"file_id_1\", \"file_id_2\", \"file_id_3\"]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/cache/document-check/batch",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cache",
+								"document-check",
+								"batch"
+							]
+						},
+						"description": "批量清理多个文档的检查缓存"
+					}
+				},
+				{
+					"name": "清理所有文档检查缓存",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/cache/document-check/all",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cache",
+								"document-check",
+								"all"
+							]
+						},
+						"description": "清理所有文档检查缓存"
+					}
+				},
+				{
+					"name": "获取Redis键统计信息",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/cache/redis/stats",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cache",
+								"redis",
+								"stats"
+							]
+						},
+						"description": "获取Redis键统计信息"
+					}
+				},
+				{
+					"name": "清理Redis所有键",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"confirmation\": \"I_CONFIRM_DELETE_ALL_REDIS_KEYS\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/cache/redis/all",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cache",
+								"redis",
+								"all"
+							]
+						},
+						"description": "危险操作：清理Redis所有键"
+					}
+				},
+				{
+					"name": "按模式清理Redis键",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pattern\": \"knowledge:*\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/cache/redis/pattern",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cache",
+								"redis",
+								"pattern"
+							]
+						},
+						"description": "按指定模式清理Redis键"
+					}
+				}
+			],
+			"description": "缓存管理相关接口，包含Redis缓存的查询和清理功能"
+		},
+		{
+			"name": "健康检查接口",
+			"item": [
+				{
+					"name": "基础健康检查",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"health"
+							]
+						},
+						"description": "基础健康检查接口"
+					}
+				},
+				{
+					"name": "数据库连接检查",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/health/database",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"health",
+								"database"
+							]
+						},
+						"description": "检查数据库连接状态"
+					}
+				},
+				{
+					"name": "配置信息检查",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/health/config",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"health",
+								"config"
+							]
+						},
+						"description": "检查应用配置信息"
+					}
+				},
+				{
+					"name": "知识添加服务健康检查",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/knowledge/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"knowledge",
+								"health"
+							]
+						},
+						"description": "知识添加服务健康检查"
+					}
+				},
+				{
+					"name": "角色服务健康检查",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/knowledge/role/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"knowledge",
+								"role",
+								"health"
+							]
+						},
+						"description": "角色服务健康检查"
+					}
+				},
+				{
+					"name": "角色用户服务健康检查",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/role-user/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"role-user",
+								"health"
+							]
+						},
+						"description": "角色用户服务健康检查"
+					}
+				}
+			],
+			"description": "各种健康检查接口，用于监控服务状态"
+		},
+		{
+			"name": "消息处理接口",
+			"item": [
+				{
+					"name": "获取最近消息日志",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/messages/recent?limit=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"messages",
+								"recent"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "限制数量，默认10"
+								}
+							]
+						},
+						"description": "获取最近的消息日志"
+					}
+				},
+				{
+					"name": "根据系统名称查询消息",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/messages/system/{{systemName}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"messages",
+								"system",
+								"{{systemName}}"
+							]
+						},
+						"description": "根据系统名称查询消息"
+					}
+				},
+				{
+					"name": "根据消息类型查询消息",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/messages/type/{{messageType}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"messages",
+								"type",
+								"{{messageType}}"
+							]
+						},
+						"description": "根据消息类型查询消息"
+					}
+				},
+				{
+					"name": "获取消息统计信息",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/messages/stats",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"messages",
+								"stats"
+							]
+						},
+						"description": "获取消息统计信息"
+					}
+				}
+			],
+			"description": "消息处理和监控相关接口"
+		},
+		{
+			"name": "知识库管理接口",
+			"item": [
+				{
+					"name": "文件添加",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"messageType\": \"FILE_ADD\",\n  \"messageTaskId\": \"task_12345\",\n  \"messageDateTime\": \"2024-01-01T10:00:00\",\n  \"fileMetadata\": {\n    \"fileId\": \"file_001\",\n    \"fileName\": \"测试文档.pdf\",\n    \"filePath\": \"/documents/test.pdf\",\n    \"fileNumber\": \"FN001\",\n    \"systemName\": \"WPROS\",\n    \"fileSize\": 1024000,\n    \"fileType\": \"pdf\"\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/knowledge/add-file",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"knowledge",
+								"add-file"
+							]
+						},
+						"description": "处理文件添加请求"
+					}
+				},
+				{
+					"name": "批量文件添加",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "[\n  {\n    \"messageType\": \"FILE_ADD\",\n    \"messageTaskId\": \"task_12345\",\n    \"messageDateTime\": \"2024-01-01T10:00:00\",\n    \"fileMetadata\": {\n      \"fileId\": \"file_001\",\n      \"fileName\": \"测试文档1.pdf\",\n      \"filePath\": \"/documents/test1.pdf\",\n      \"fileNumber\": \"FN001\",\n      \"systemName\": \"WPROS\"\n    }\n  },\n  {\n    \"messageType\": \"FILE_ADD\",\n    \"messageTaskId\": \"task_12346\",\n    \"messageDateTime\": \"2024-01-01T10:01:00\",\n    \"fileMetadata\": {\n      \"fileId\": \"file_002\",\n      \"fileName\": \"测试文档2.pdf\",\n      \"filePath\": \"/documents/test2.pdf\",\n      \"fileNumber\": \"FN002\",\n      \"systemName\": \"WPROS\"\n    }\n  }\n]",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/knowledge/add-files-batch",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"knowledge",
+								"add-files-batch"
+							]
+						},
+						"description": "批量处理文件添加请求"
+					}
+				},
+				{
+					"name": "文件权限变更处理",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"messageTaskId\": \"task_67890\",\n  \"messageType\": \"FILE_NOT_CHANGE\",\n  \"messageDateTime\": \"2024-01-01T10:00:00\",\n  \"fileId\": \"file_001\",\n  \"fileMetadata\": {\n    \"fileName\": \"测试文档.pdf\",\n    \"filePath\": \"/documents/test.pdf\",\n    \"fileNumber\": \"FN001\",\n    \"systemName\": \"WPROS\"\n  },\n  \"addRoleList\": [\"role1\", \"role2\"],\n  \"delRoleList\": [\"role3\"],\n  \"addUserList\": [\"user1\", \"user2\"],\n  \"delUserList\": [\"user3\"]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/knowledge/role/file-not-change",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"knowledge",
+								"role",
+								"file-not-change"
+							]
+						},
+						"description": "处理文件权限变更消息"
+					}
+				},
+				{
+					"name": "获取角色服务信息",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/knowledge/role/info",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"knowledge",
+								"role",
+								"info"
+							]
+						},
+						"description": "获取角色服务信息"
+					}
+				}
+			],
+			"description": "知识库管理相关接口，包含文件添加和权限管理"
+		},
+		{
+			"name": "角色用户管理接口",
+			"item": [
+				{
+					"name": "处理角色用户消息",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"messageType\": \"ADD_ROLE\",\n  \"roleId\": \"role_001\",\n  \"roleName\": \"测试角色\",\n  \"messageTaskId\": \"task_11111\",\n  \"systemName\": \"WPROS\",\n  \"messageDateTime\": \"2024-01-01T10:00:00\",\n  \"addUserList\": [\"user1\", \"user2\"],\n  \"delUserList\": []\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/role-user/process",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"role-user",
+								"process"
+							]
+						},
+						"description": "处理角色用户消息 (ADD_ROLE, DEL_ROLE, ROLE_ADD_USER, ROLE_DEL_USER)"
+					}
+				},
+				{
+					"name": "批量处理角色用户消息",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "[\n  {\n    \"messageType\": \"ADD_ROLE\",\n    \"roleId\": \"role_001\",\n    \"roleName\": \"测试角色1\",\n    \"messageTaskId\": \"task_11111\",\n    \"systemName\": \"WPROS\",\n    \"messageDateTime\": \"2024-01-01T10:00:00\",\n    \"addUserList\": [\"user1\", \"user2\"]\n  },\n  {\n    \"messageType\": \"ROLE_ADD_USER\",\n    \"roleId\": \"role_002\",\n    \"roleName\": \"测试角色2\",\n    \"messageTaskId\": \"task_11112\",\n    \"systemName\": \"WPROS\",\n    \"messageDateTime\": \"2024-01-01T10:01:00\",\n    \"addUserList\": [\"user3\", \"user4\"]\n  }\n]",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/role-user/batch-process",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"role-user",
+								"batch-process"
+							]
+						},
+						"description": "批量处理角色用户消息"
+					}
+				},
+				{
+					"name": "获取支持的消息类型",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/role-user/message-types",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"role-user",
+								"message-types"
+							]
+						},
+						"description": "获取支持的消息类型列表"
+					}
+				}
+			],
+			"description": "角色用户管理相关接口，处理角色和用户的增删操作"
+		},
+		{
+			"name": "系统信息接口",
+			"item": [
+				{
+					"name": "主页信息",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								""
+							]
+						},
+						"description": "获取系统主页信息"
+					}
+				},
+				{
+					"name": "Ping接口",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/ping",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"ping"
+							]
+						},
+						"description": "简单的ping测试接口"
+					}
+				}
+			],
+			"description": "系统基础信息接口"
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"description": "API服务器基础URL"
+		},
+		{
+			"key": "fileNumber",
+			"value": "FN001",
+			"description": "示例文件编号"
+		},
+		{
+			"key": "zhenzhiFileId",
+			"value": "zhenzhi_file_123",
+			"description": "示例甄知文件ID"
+		},
+		{
+			"key": "systemName",
+			"value": "WPROS",
+			"description": "示例系统名称"
+		},
+		{
+			"key": "messageType",
+			"value": "FILE_ADD",
+			"description": "示例消息类型"
+		}
+	]
+}

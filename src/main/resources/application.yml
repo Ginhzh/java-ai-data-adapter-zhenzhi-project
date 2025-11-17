@@ -1,0 +1,137 @@
+spring:
+  application:
+    name: knowledge-service
+  profiles:
+    active: prod  # 默认使用prod profile，不会执行测试
+  
+  # R2DBC响应式数据库配置 - 使用环境变量
+  r2dbc:
+    url: r2dbc:mysql://${MYSQL_HOST:10.3.80.24}:${MYSQL_PORT:32647}/${MYSQL_DATABASE:knowledge_db}
+    username: ${MYSQL_USER:knowledge}
+    password: ${MYSQL_PASSWORD:Weichai@123}
+    pool:
+      enabled: true
+      initial-size: 5
+      max-size: 20
+      max-idle-time: 5m
+      max-life-time: 20m
+      max-acquire-time: 20s
+      max-create-connection-time: 20s
+      validation-query: SELECT 1
+
+  # 注释掉JPA配置，因为使用R2DBC响应式数据库访问
+  # jpa:
+  #   hibernate:
+  #     ddl-auto: update  # 开发环境使用update自动创建表，生产环境改为validate
+  #   show-sql: false
+  #   properties:
+  #     hibernate:
+  #       dialect: org.hibernate.dialect.MySQLDialect
+  #       format_sql: true
+  #       jdbc:
+  #         time_zone: Asia/Shanghai
+  #   open-in-view: false
+  
+  # Redis配置 - 使用环境变量
+  data:
+    redis:
+      host: ${REDIS_HOST:10.3.80.24}
+      port: ${REDIS_PORT:30223}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+          max-wait: 2000ms
+  
+  # Kafka配置 - 使用环境变量
+  kafka:
+    bootstrap-servers: ${KAFKA_TEST_BOOTSTRAP_SERVERS:10.3.80.24:31946}
+    consumer:
+      group-id: ${KAFKA_GROUP_ID:external-test-groupnew}
+      auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:latest}
+      enable-auto-commit: ${KAFKA_ENABLE_AUTO_COMMIT:false}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      max-poll-records: 500
+      max-poll-interval-ms: 300000
+      session-timeout-ms: 30000
+      heartbeat-interval-ms: 3000
+      properties:
+        spring.json.trusted.packages: "*"
+        reconnect.backoff.ms: 1000
+        reconnect.backoff.max.ms: 10000
+        retry.backoff.ms: 1000
+        request.timeout.ms: 60000
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      ack-mode: manual_immediate
+      missing-topics-fatal: false
+      type: batch
+
+# 自定义配置 - 使用环境变量
+app:
+  database:
+    host: ${MYSQL_HOST:10.3.80.24}
+    port: ${MYSQL_PORT:32647}
+    username: ${MYSQL_USER:knowledge}
+    password: ${MYSQL_PASSWORD:Weichai@123}
+    database: ${MYSQL_DATABASE:knowledge_db}
+    charset: ${MYSQL_CHARSET:utf8mb4}
+  
+  redis:
+    host: ${REDIS_HOST:10.3.80.24}
+    port: ${REDIS_PORT:30223}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DB:0}
+  
+  kafka:
+    bootstrap-servers: ${KAFKA_TEST_BOOTSTRAP_SERVERS:10.3.80.24:31946}
+    group-id: ${KAFKA_GROUP_ID:external-test-groupnew}
+    topic-prefix: ${KAFKA_TEST_TOPIC_PREFIX:ZHENZHI_DATA_TEST_}
+    auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:latest}
+    enable-auto-commit: ${KAFKA_ENABLE_AUTO_COMMIT:false}
+  
+  api:
+    base-url: ${API_BASE_URL:http://10.74.32.195}
+    match-signature: ${API_MATCH_SIGNATURE:"5+fAMdUvi9IlKcuodRPaGAFRot/twrIq1hfRc5KYkFnVDoGI+q5TseWFxOQG5RBBHc2d0XTLoWHjXWX94rFOiPndW6//DI2txYIavp6KtDm7xNg23h7noGCCW/anHpdI"}
+  
+  space:
+    guid: ${SPACE_GUID:G6pmhUbcb5}
+
+# 服务配置 - 使用环境变量
+server:
+  port: ${API_PORT:8081}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+# 日志配置
+logging:
+  level:
+    com.weichai.knowledge: INFO
+    org.springframework.kafka: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/knowledge-service.log
+
+# 监控配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized 

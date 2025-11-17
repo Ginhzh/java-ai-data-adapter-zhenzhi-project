@@ -1,0 +1,43 @@
+# 基础环境镜像
+# 构建阶段环境
+FROM alpine:3.18 AS maven-builder
+
+# !! 添加此行: 更换为阿里云的软件镜像源，加速构建
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 安装JDK 17和Maven
+RUN apk add --no-cache \
+    openjdk17 \
+    maven \
+    curl \
+    bash
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+ENV PATH="$JAVA_HOME/bin:$PATH"
+
+# 运行阶段环境  
+FROM alpine:3.18 AS runtime
+
+# !! 添加此行: 再次更换软件源，因为是新的构建阶段
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 安装JRE 17和必要工具
+RUN apk add --no-cache \
+    openjdk17-jre \
+    curl \
+    tzdata \
+    fontconfig \
+    ttf-dejavu \
+    bash
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+ENV PATH="$JAVA_HOME/bin:$PATH"
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# 创建非root用户
+RUN addgroup -g 1000 app && adduser -u 1000 -G app -s /bin/sh -D app
+
+WORKDIR /app
