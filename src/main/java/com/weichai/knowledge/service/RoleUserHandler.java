@@ -387,26 +387,28 @@ public class RoleUserHandler {
                                                               int errorType,
                                                               String step,
                                                               RoleUserMessage message) {
-        return webClient.post()
-            .uri(endpoint)
-            .bodyValue(requestBody)
-            .retrieve()
-            .bodyToMono(Map.class)
-            .retryWhen(Retry.fixedDelay(MAX_RETRIES, RETRY_DELAY)
-                .doBeforeRetry(retrySignal -> 
-                    log.info("{} 失败，重试次数: {}/{}", step, retrySignal.totalRetries() + 1, MAX_RETRIES)
+        Mono<Map<String, Object>> pipeline = webClient.post()
+                .uri(endpoint)
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .retryWhen(Retry.fixedDelay(MAX_RETRIES, RETRY_DELAY)
+                        .doBeforeRetry(retrySignal ->
+                                log.info("{} 失败，重试次数: {}/{}", step, retrySignal.totalRetries() + 1, MAX_RETRIES)
+                        )
                 )
-            )
-            .doOnSuccess(response -> {
-                if (!isSuccessResponse(response)) {
-                    throw new RuntimeException("API调用失败: " + response.get("message"));
-                }
-            })
-            .onErrorResume(error -> {
-                logError(errorType, step, message, error);
-                return Mono.empty();
-            })
-            .map(response -> isSuccessResponse(response) ? response : null);
+                .doOnSuccess(response -> {
+                    if (!isSuccessResponse(response)) {
+                        throw new RuntimeException("API调用失败: " + response.get("message"));
+                    }
+                })
+                .onErrorResume(error -> {
+                    logError(errorType, step, message, error);
+                    return Mono.empty();
+                })
+                .map(response -> isSuccessResponse(response) ? response : null);
+
+        return logExternalCall(endpoint, requestBody, pipeline);
     }
     
     /**
@@ -483,5 +485,22 @@ public class RoleUserHandler {
             .doOnError(e -> log.warn("Redis计数失败 [{}] 系统={} key={} err={}", stage, systemName, key, e.getMessage()))
             .onErrorResume(e -> Mono.empty())
             .then();
+    }
+
+    private <T> Mono<T> logExternalCall(String endpoint, Object requestBody, Mono<T> publisher) {
+        return Mono.defer(() -> {
+            log.info("调用外部接口 [{}] 请求参数: {}", endpoint, toJsonSafe(requestBody));
+            return publisher
+                    .doOnNext(resp -> log.info("外部接口 [{}] 响应: {}", endpoint, toJsonSafe(resp)))
+                    .doOnError(err -> log.error("外部接口 [{}] 异常: {}", endpoint, err.getMessage()));
+        });
+    }
+
+    private String toJsonSafe(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return String.valueOf(obj);
+        }
     }
 }
