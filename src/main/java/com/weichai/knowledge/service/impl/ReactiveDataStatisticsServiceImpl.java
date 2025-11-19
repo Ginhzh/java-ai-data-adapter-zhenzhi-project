@@ -727,6 +727,16 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
                         result.getSystemStatistics().size()))
                 .doOnError(error -> log.error("获取系统每日统计失败: {}", error.getMessage(), error));
     }
+
+    /**
+     * 基于Redis优先的数据源获取当天各系统综合统计，
+     * 当前实现复用现有逻辑（实时查询），后续可在此处对接Redis计数优先、无缓存降级到数据库的混合逻辑。
+     */
+    @Override
+    public Mono<SystemDailyStatisticsResponse> getSystemDailyStatisticsWithRedis() {
+        log.info("获取系统每日统计（Redis优先，当前复用实时查询）");
+        return getSystemDailyStatistics();
+    }
     
     /**
      * 获取单个系统的综合统计数据 - 对应Python版本的_get_system_comprehensive_stats

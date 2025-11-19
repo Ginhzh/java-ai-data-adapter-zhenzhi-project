@@ -410,6 +410,16 @@ public class ReactiveRedisManager {
                 return Mono.just(false);
             });
     }
+
+    /**
+     * 自增Hash字段 - 响应式版
+     */
+    public Mono<Long> hincrBy(String key, String field, long delta) {
+        return reactiveStringRedisTemplate.opsForHash()
+            .increment(key, field, delta)
+            .doOnError(e -> log.warn("Redis HINCRBY失败: key={}, field={}, error={}", key, field, e.getMessage()))
+            .onErrorResume(e -> Mono.empty());
+    }
     
     /**
      * 设置消息处理状态 - 响应式版本
