@@ -271,7 +271,6 @@ public class MessageHandler {
      * 记录Kafka消息到数据库
      * 使用独立事务，避免影响消息处理性能
      */
-    @Transactional
     private void recordKafkaMessage(String logId, Map<String, Object> messageData, String rawMessage) {
         try {
             String systemName = getSystemName(messageData);
@@ -296,8 +295,10 @@ public class MessageHandler {
             kafkaLog.setMessageDateTime(messageDateTime);
             kafkaLog.setFileNumber(fileNumber);
             
-            kafkaMessageLogRepository.save(kafkaLog);
-            log.info("已记录Kafka消息，ID: {}", logId);
+            kafkaMessageLogRepository.save(kafkaLog)
+                .doOnSuccess(saved -> log.info("已记录Kafka消息，ID: {}", logId))
+                .doOnError(error -> log.error("异步记录Kafka消息失败: {}", error.getMessage(), error))
+                .subscribe();
             
         } catch (Exception e) {
             log.error("记录Kafka消息失败: {}", e.getMessage(), e);
@@ -442,5 +443,4 @@ public class MessageHandler {
         }
     }
 } 
-
 
