@@ -339,23 +339,31 @@ public class ReactiveKnowledgeAddService {
             // 检查推送结果
             Boolean success = (Boolean) pushResponse.get("success");
             if (Boolean.FALSE.equals(success)) {
-                String errorMessage = (String) pushResponse.getOrDefault("message", 
-                    pushResponse.getOrDefault("error", "未知错误"));
+                String errorMessage = extractErrorMessage(pushResponse);
                 log.error("推送数据到甄知失败: {}", pushResponse);
                 throw new RuntimeException(String.format("推送数据到甄知失败: %s", errorMessage));
             }
             
             Integer returnCode = (Integer) pushResponse.get("returnCode");
-            if (!Integer.valueOf(200).equals(returnCode)) {
-                String errorMessage = (String) pushResponse.get("returnMessage");
+            if (returnCode != null && !Integer.valueOf(200).equals(returnCode)) {
+                String errorMessage = extractErrorMessage(pushResponse);
                 log.error("推送数据到甄知返回非成功状态码: {}", pushResponse);
                 throw new RuntimeException(String.format("推送数据到甄知失败: %s", errorMessage));
             }
             
-            // 从result对象中获取docGuid
             @SuppressWarnings("unchecked")
-            Map<String, Object> resultObj = (Map<String, Object>) pushResponse.get("result");
-            context.docGuid = (String) resultObj.get("docGuid");
+            Map<String, Object> resultObj = (Map<String, Object>) Optional
+                .ofNullable(pushResponse.get("result"))
+                .orElseGet(() -> Optional.ofNullable(pushResponse.get("data"))
+                    .orElse(pushResponse.get("resultData")));
+            
+            if (resultObj == null) {
+                log.error("推送成功但未返回文档数据，完整响应: {}", pushResponse);
+                throw new RuntimeException("推送成功但未返回文档数据");
+            }
+            
+            Object docGuidObj = resultObj.get("docGuid");
+            context.docGuid = docGuidObj != null ? docGuidObj.toString() : null;
             
             if (context.docGuid == null || context.docGuid.isEmpty()) {
                 log.error("推送成功但未返回文档GUID，完整响应: {}", pushResponse);
@@ -365,6 +373,20 @@ public class ReactiveKnowledgeAddService {
             log.info("成功推送数据到甄知，文档GUID: {}", context.docGuid);
             return context;
         });
+    }
+    
+    private String extractErrorMessage(Map<String, Object> pushResponse) {
+        if (pushResponse == null) {
+            return "未知错误";
+        }
+        List<String> keys = Arrays.asList("returnMessage", "message", "msg", "errorMessage", "error");
+        for (String key : keys) {
+            Object value = pushResponse.get(key);
+            if (value != null) {
+                return value.toString();
+            }
+        }
+        return "未知错误";
     }
     
     /**

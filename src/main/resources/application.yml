@@ -94,11 +94,23 @@ app:
     bootstrap-servers: ${KAFKA_TEST_BOOTSTRAP_SERVERS:10.3.80.24:31946}
     group-id: ${KAFKA_GROUP_ID:external-test-groupnew}
     topic-prefix: ${KAFKA_TEST_TOPIC_PREFIX:ZHENZHI_DATA_TEST_}
+    topics:
+      file-add: ${KAFKA_TOPIC_FILE_ADD:ZHENZHI_DATA_TEST_FILE_ADD}
+      file-del: ${KAFKA_TOPIC_FILE_DEL:ZHENZHI_DATA_TEST_FILE_DEL}
+      file-not-change: ${KAFKA_TOPIC_FILE_NOT_CHANGE:ZHENZHI_DATA_TEST_FILE_NOT_CHANGE}
+      role-add: ${KAFKA_TOPIC_ADD_ROLE:ZHENZHI_DATA_TEST_ADD_ROLE}
+      role-del: ${KAFKA_TOPIC_DEL_ROLE:ZHENZHI_DATA_TEST_DEL_ROLE}
+      role-add-user: ${KAFKA_TOPIC_ROLE_ADD_USER:ZHENZHI_DATA_TEST_ROLE_ADD_USER}
+      role-del-user: ${KAFKA_TOPIC_ROLE_DEL_USER:ZHENZHI_DATA_TEST_ROLE_DEL_USER}
+    concurrency:
+      file-add: ${KAFKA_CONCURRENCY_FILE_ADD:1}
+      file-ops: ${KAFKA_CONCURRENCY_FILE_OPS:3}
+      role-user: ${KAFKA_CONCURRENCY_ROLE_USER:3}
     auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:latest}
     enable-auto-commit: ${KAFKA_ENABLE_AUTO_COMMIT:false}
   
   api:
-    base-url: ${API_BASE_URL:http://10.74.32.195}
+    base-url: ${API_BASE_URL:https://k-engine-test.weichai.com}
     match-signature: ${API_MATCH_SIGNATURE:"5+fAMdUvi9IlKcuodRPaGAFRot/twrIq1hfRc5KYkFnVDoGI+q5TseWFxOQG5RBBHc2d0XTLoWHjXWX94rFOiPndW6//DI2txYIavp6KtDm7xNg23h7noGCCW/anHpdI"}
   
   space:

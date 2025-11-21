@@ -4,6 +4,7 @@ import com.weichai.knowledge.service.DataStatisticsService;
 import com.weichai.knowledge.dto.*;
 import com.weichai.knowledge.entity.*;
 import com.weichai.knowledge.repository.*;
+import com.weichai.knowledge.redis.ReactiveRedisManager;
 import com.weichai.knowledge.utils.JsonUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -30,9 +32,12 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
     private final ReactiveKnowledgeRoleSyncLogRepository knowledgeRoleSyncLogRepository;
     private final ReactiveVirtualGroupSyncLogRepository virtualGroupSyncLogRepository;
     private final JsonUtils jsonUtils;
+    private final ReactiveRedisManager reactiveRedisManager;
     
     private final ExecutorService executorService = Executors.newFixedThreadPool(10);
     private static final int CACHE_EXPIRY_MINUTES = 5;
+    private static final String LEGACY_SYSTEM = "legacy_system";
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
     
     @PostConstruct
     public void init() {
@@ -727,6 +732,45 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
                         result.getSystemStatistics().size()))
                 .doOnError(error -> log.error("获取系统每日统计失败: {}", error.getMessage(), error));
     }
+
+    /**
+     * 基于Redis优先的数据源获取当天各系统综合统计，
+     * 当前实现复用现有逻辑（实时查询），后续可在此处对接Redis计数优先、无缓存降级到数据库的混合逻辑。
+     */
+    @Override
+    public Mono<SystemDailyStatisticsResponse> getSystemDailyStatisticsWithRedis() {
+        log.info("获取系统每日统计（Redis优先，支持按系统降级）");
+        
+        LocalDate today = LocalDate.now();
+        LocalDateTime startDateTime = today.atStartOfDay();
+        LocalDateTime endDateTime = today.atTime(23, 59, 59);
+        
+        return kafkaMessageLogRepository.findDistinctSystemNames(startDateTime, endDateTime)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collectList()
+                .flatMap(systemNames -> Flux.fromIterable(systemNames)
+                        .flatMap(systemName -> getSystemComprehensiveStatsWithRedis(systemName, startDateTime, endDateTime, today)
+                                .onErrorResume(error -> {
+                                    log.warn("系统 {} Redis统计失败，降级为数据库查询: {}", systemName, error.getMessage());
+                                    return getSystemComprehensiveStats(systemName, startDateTime, endDateTime);
+                                }))
+                        .collectList()
+                        .map(systemStatsList -> SystemDailyStatisticsResponse.builder()
+                                .date(today.toString())
+                                .systemStatistics(systemStatsList)
+                                .totalStatistics(calculateTotalStats(systemStatsList))
+                                .build()))
+                .switchIfEmpty(Mono.fromSupplier(() -> SystemDailyStatisticsResponse.builder()
+                        .date(today.toString())
+                        .systemStatistics(Collections.emptyList())
+                        .totalStatistics(calculateTotalStats(Collections.emptyList()))
+                        .build()))
+                .onErrorResume(error -> {
+                    log.error("获取系统每日统计（Redis优先）失败，降级到数据库查询: {}", error.getMessage(), error);
+                    return getSystemDailyStatistics();
+                });
+    }
     
     /**
      * 获取单个系统的综合统计数据 - 对应Python版本的_get_system_comprehensive_stats
@@ -739,54 +783,31 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
                 getFileDelStatistics(systemName, startDateTime, endDateTime),
                 getFileNotChangeStatistics(systemName, startDateTime, endDateTime),
                 getRoleOperationsStatistics(systemName, startDateTime, endDateTime)
-        ).map(tuple -> {
-            FileOperationStats fileAddStats = tuple.getT1();
-            FileOperationStats fileDelStats = tuple.getT2();
-            FileNotChangeStats fileNotChangeStats = tuple.getT3();
-            RoleOperationStats roleOpsStats = tuple.getT4();
-            
-            // 构建系统统计数据，对应Python的返回结构
-            return SystemDailyStats.builder()
-                    .systemName(systemName)
-                    .fileOps(FileOpsStats.builder()
-                            .add(fileAddStats.getAddCount() != null ? fileAddStats.getAddCount() : 0)
-                            .delete(fileDelStats.getDeleteOperations() != null ? fileDelStats.getDeleteOperations() : 0)
-                            .build())
-                    .fileUpdate(FileUpdateStats.builder()
-                            .fileUpdateRecords(fileNotChangeStats.getSyncRecordCount())
-                            .roleAdd(fileNotChangeStats.getSyncRoles().getAddCount())
-                            .roleDelete(fileNotChangeStats.getSyncRoles().getDelCount())
-                            .userAdd(fileNotChangeStats.getSyncUsers().getAddCount())
-                            .userDelete(fileNotChangeStats.getSyncUsers().getDelCount())
-                            .build())
-                    .virtualGroupOps(VirtualGroupOpsStats.builder()
-                            .roleGroupCreate(roleOpsStats.getSyncOperations().getOrDefault("ADD_ROLE", 0))
-                            .roleGroupCreateUsers(roleOpsStats.getSyncUsers().getOrDefault("ADD_ROLE", 0))
-                            .roleGroupDelete(roleOpsStats.getSyncOperations().getOrDefault("DEL_ROLE", 0))
-                            .roleAddRecords(roleOpsStats.getSyncOperations().getOrDefault("ROLE_ADD_USER", 0))
-                            .roleAddUsers(roleOpsStats.getSyncUsers().getOrDefault("ROLE_ADD_USER", 0))
-                            .roleDeleteRecords(roleOpsStats.getSyncOperations().getOrDefault("ROLE_DEL_USER", 0))
-                            .roleDeleteUsers(roleOpsStats.getSyncUsers().getOrDefault("ROLE_DEL_USER", 0))
-                            .build())
-                    .kafkaMessageStats(KafkaMessageStats.builder()
-                            .fileAddMessages(fileAddStats.getKafkaMessageCount())
-                            .fileDeleteMessages(fileDelStats.getKafkaMessageCount())
-                            .fileUpdateMessages(fileNotChangeStats.getKafkaMessageCount())
-                            .roleGroupCreateMessages(roleOpsStats.getKafkaMessages().getOrDefault("ADD_ROLE", 0))
-                            .roleGroupDeleteMessages(roleOpsStats.getKafkaMessages().getOrDefault("DEL_ROLE", 0))
-                            .roleAddUserMessages(roleOpsStats.getKafkaMessages().getOrDefault("ROLE_ADD_USER", 0))
-                            .roleDeleteUserMessages(roleOpsStats.getKafkaMessages().getOrDefault("ROLE_DEL_USER", 0))
-                            .fileUpdate(FilePermissionUserStats.builder()
-                                    .addUsers(fileNotChangeStats.getKafkaUsers().getAddCount())
-                                    .deleteUsers(fileNotChangeStats.getKafkaUsers().getDelCount())
-                                    .build())
-                            .roleUserChange(RoleUserChangeStats.builder()
-                                    .addUsers(roleOpsStats.getKafkaUsers().getOrDefault("ROLE_ADD_USER", 0))
-                                    .deleteUsers(roleOpsStats.getKafkaUsers().getOrDefault("ROLE_DEL_USER", 0))
-                                    .build())
-                            .build())
-                    .build();
-        });
+        ).map(tuple -> buildSystemDailyStats(
+                systemName,
+                tuple.getT1(),
+                tuple.getT2(),
+                tuple.getT3(),
+                tuple.getT4()
+        ));
+    }
+
+    private Mono<SystemDailyStats> getSystemComprehensiveStatsWithRedis(String systemName,
+                                                                       LocalDateTime startDateTime,
+                                                                       LocalDateTime endDateTime,
+                                                                       LocalDate date) {
+        return Mono.zip(
+                getFileAddStatistics(systemName, startDateTime, endDateTime),
+                getFileDelStatistics(systemName, startDateTime, endDateTime),
+                getFileNotChangeStatisticsWithRedis(systemName, startDateTime, endDateTime),
+                getRoleOperationsStatisticsWithRedis(systemName, startDateTime, endDateTime, date)
+        ).map(tuple -> buildSystemDailyStats(
+                systemName,
+                tuple.getT1(),
+                tuple.getT2(),
+                tuple.getT3(),
+                tuple.getT4()
+        ));
     }
     
     /**
@@ -848,6 +869,71 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
     /**
      * 获取FILE_NOT_CHANGE类型消息的统计信息 - 对应Python的_get_file_not_change_statistics_optimized
      */
+    private Mono<FileNotChangeStats> getFileNotChangeStatisticsWithRedis(String systemName,
+                                                                        LocalDateTime startDateTime,
+                                                                        LocalDateTime endDateTime) {
+        return aggregateRedisFileNotChangeCounts(systemName, startDateTime, endDateTime)
+                .flatMap(redisCounts -> {
+                    if (!redisCounts.hasData()) {
+                        log.info("系统 {} Redis无文件更新统计，使用数据库查询", systemName);
+                        return getFileNotChangeStatistics(systemName, startDateTime, endDateTime);
+                    }
+                    
+                    Mono<UserStats> kafkaUsersMono = parseFileNotChangeKafkaUsers(systemName, startDateTime, endDateTime);
+                    Mono<SyncStats> syncStatsMono = getFileNotChangeSyncStats(systemName, startDateTime, endDateTime);
+                    
+                    return Mono.zip(kafkaUsersMono, syncStatsMono)
+                            .map(tuple -> FileNotChangeStats.builder()
+                                    .kafkaMessageCount(redisCounts.getVerificationPassed())
+                                    .syncRecordCount(redisCounts.getPermissionSuccess())
+                                    .kafkaUsers(UserStats.builder()
+                                            .addCount(tuple.getT1().getAddCount())
+                                            .delCount(tuple.getT1().getDelCount())
+                                            .build())
+                                    .syncRoles(UserStats.builder()
+                                            .addCount(tuple.getT2().getRoles().getAddCount())
+                                            .delCount(tuple.getT2().getRoles().getDelCount())
+                                            .build())
+                                    .syncUsers(UserStats.builder()
+                                            .addCount(tuple.getT2().getUsers().getAddCount())
+                                            .delCount(tuple.getT2().getUsers().getDelCount())
+                                            .build())
+                                    .build());
+                })
+                .onErrorResume(error -> {
+                    log.warn("系统 {} 获取Redis文件更新统计失败，降级数据库: {}", systemName, error.getMessage());
+                    return getFileNotChangeStatistics(systemName, startDateTime, endDateTime);
+                });
+    }
+
+    private Mono<RedisFileNotChangeCounts> aggregateRedisFileNotChangeCounts(String systemName,
+                                                                            LocalDateTime startDateTime,
+                                                                            LocalDateTime endDateTime) {
+        return Flux.fromIterable(buildDateRange(startDateTime.toLocalDate(), endDateTime.toLocalDate()))
+                .flatMap(date -> fetchFileNotChangeRedisCountsForDate(systemName, date))
+                .reduce(new int[]{0, 0}, (acc, daily) -> {
+                    acc[0] += daily[0];
+                    acc[1] += daily[1];
+                    return acc;
+                })
+                .map(arr -> new RedisFileNotChangeCounts(arr[0], arr[1]));
+    }
+
+    private Mono<int[]> fetchFileNotChangeRedisCountsForDate(String systemName, LocalDate date) {
+        String dateStr = date.format(DATE_FORMATTER);
+        String verificationKey = systemName + ":knowledge:verification:passed:" + dateStr;
+        String permissionKey = systemName + ":knowledge:operation:success:" + dateStr;
+        
+        return Mono.zip(
+                readRedisCounter(verificationKey),
+                readRedisCounter(permissionKey)
+        ).map(tuple -> new int[]{tuple.getT1(), tuple.getT2()})
+                .onErrorResume(error -> {
+                    log.warn("读取系统 {} 日期 {} 的文件更新Redis计数失败: {}", systemName, dateStr, error.getMessage());
+                    return Mono.just(new int[]{0, 0});
+                });
+    }
+
     private Mono<FileNotChangeStats> getFileNotChangeStatistics(String systemName, 
                                                               LocalDateTime startDateTime, 
                                                               LocalDateTime endDateTime) {
@@ -888,6 +974,60 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
     /**
      * 获取角色相关操作统计信息 - 对应Python的_get_role_operations_statistics_optimized
      */
+    private Mono<RoleOperationStats> getRoleOperationsStatisticsWithRedis(String systemName,
+                                                                         LocalDateTime startDateTime,
+                                                                         LocalDateTime endDateTime,
+                                                                         LocalDate date) {
+        Mono<List<VirtualGroupSyncLog>> addRoleLogsMono = virtualGroupSyncLogRepository
+                .findBySystemAndMessageType(systemName, "ADD_ROLE", startDateTime, endDateTime)
+                .collectList();
+        Mono<List<VirtualGroupSyncLog>> delRoleLogsMono = virtualGroupSyncLogRepository
+                .findBySystemAndMessageType(systemName, "DEL_ROLE", startDateTime, endDateTime)
+                .collectList();
+        Mono<RoleUserRedisStats> redisStatsMono = getRoleUserRedisStats(systemName, date);
+        
+        return Mono.zip(addRoleLogsMono, delRoleLogsMono, redisStatsMono)
+                .map(tuple -> {
+                    List<VirtualGroupSyncLog> addRoleLogs = tuple.getT1();
+                    List<VirtualGroupSyncLog> delRoleLogs = tuple.getT2();
+                    RoleUserRedisStats redisStats = tuple.getT3();
+                    
+                    int kafkaAddRoleCount = addRoleLogs.size();
+                    int kafkaDelRoleCount = delRoleLogs.size();
+                    int kafkaAddRoleUsers = countUsersInSyncLogs(addRoleLogs, "ADD_ROLE");
+                    int kafkaDelRoleUsers = countUsersInSyncLogs(delRoleLogs, "ROLE_DEL_USER");
+                    
+                    Map<String, Integer> kafkaMessages = new HashMap<>();
+                    kafkaMessages.put("ADD_ROLE", kafkaAddRoleCount);
+                    kafkaMessages.put("DEL_ROLE", kafkaDelRoleCount);
+                    kafkaMessages.put("ROLE_ADD_USER", redisStats.getAddVerificationMessages());
+                    kafkaMessages.put("ROLE_DEL_USER", redisStats.getDelVerificationMessages());
+                    
+                    Map<String, Integer> syncOperations = new HashMap<>();
+                    syncOperations.put("ADD_ROLE", kafkaAddRoleCount);
+                    syncOperations.put("DEL_ROLE", kafkaDelRoleCount);
+                    syncOperations.put("ROLE_ADD_USER", redisStats.getAddSuccessMessages());
+                    syncOperations.put("ROLE_DEL_USER", redisStats.getDelSuccessMessages());
+                    
+                    Map<String, Integer> kafkaUsers = new HashMap<>();
+                    kafkaUsers.put("ROLE_ADD_USER", redisStats.getAddVerificationUsers());
+                    kafkaUsers.put("ROLE_DEL_USER", redisStats.getDelVerificationUsers());
+                    
+                    Map<String, Integer> syncUsers = new HashMap<>();
+                    syncUsers.put("ADD_ROLE", kafkaAddRoleUsers);
+                    syncUsers.put("DEL_ROLE", kafkaDelRoleUsers);
+                    syncUsers.put("ROLE_ADD_USER", redisStats.getAddSuccessUsers());
+                    syncUsers.put("ROLE_DEL_USER", redisStats.getDelSuccessUsers());
+                    
+                    return RoleOperationStats.builder()
+                            .kafkaMessages(kafkaMessages)
+                            .syncOperations(syncOperations)
+                            .kafkaUsers(kafkaUsers)
+                            .syncUsers(syncUsers)
+                            .build();
+                });
+    }
+
     private Mono<RoleOperationStats> getRoleOperationsStatistics(String systemName, 
                                                                LocalDateTime startDateTime, 
                                                                LocalDateTime endDateTime) {
@@ -1068,6 +1208,112 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
         return totalUsers;
     }
     
+    private Mono<RoleUserRedisStats> getRoleUserRedisStats(String systemName, LocalDate date) {
+        String dateStr = date.format(DATE_FORMATTER);
+        Mono<RedisHashCounters> addVerificationMono = readRoleUserRedisHash(buildRoleUserVerificationKey(systemName, "add_user", dateStr));
+        Mono<RedisHashCounters> delVerificationMono = readRoleUserRedisHash(buildRoleUserVerificationKey(systemName, "del_user", dateStr));
+        Mono<RedisHashCounters> addSuccessMono = readRoleUserRedisHash(buildRoleUserSuccessKey(systemName, "add_user", dateStr));
+        Mono<RedisHashCounters> delSuccessMono = readRoleUserRedisHash(buildRoleUserSuccessKey(systemName, "del_user", dateStr));
+        
+        return Mono.zip(addVerificationMono, delVerificationMono, addSuccessMono, delSuccessMono)
+                .map(tuple -> new RoleUserRedisStats(
+                        tuple.getT1().getMessageCount(),
+                        tuple.getT1().getUserCount(),
+                        tuple.getT3().getMessageCount(),
+                        tuple.getT3().getUserCount(),
+                        tuple.getT2().getMessageCount(),
+                        tuple.getT2().getUserCount(),
+                        tuple.getT4().getMessageCount(),
+                        tuple.getT4().getUserCount()
+                ))
+                .defaultIfEmpty(RoleUserRedisStats.empty())
+                .onErrorResume(error -> {
+                    log.warn("获取系统 {} 角色用户Redis统计失败: {}", systemName, error.getMessage());
+                    return Mono.just(RoleUserRedisStats.empty());
+                });
+    }
+    
+    private Mono<RedisHashCounters> readRoleUserRedisHash(String key) {
+        if (reactiveRedisManager == null || key == null || key.isEmpty()) {
+            return Mono.just(RedisHashCounters.empty());
+        }
+        return reactiveRedisManager.hgetall(key)
+                .map(this::toRedisHashCounters)
+                .defaultIfEmpty(RedisHashCounters.empty())
+                .onErrorResume(error -> {
+                    log.warn("读取Redis哈希 {} 失败: {}", key, error.getMessage());
+                    return Mono.just(RedisHashCounters.empty());
+                });
+    }
+    
+    private RedisHashCounters toRedisHashCounters(Map<String, Object> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return RedisHashCounters.empty();
+        }
+        int messageCount = safeParseInt(raw.get("message_count"));
+        int userCount = safeParseInt(raw.get("user_count"));
+        return new RedisHashCounters(messageCount, userCount);
+    }
+    
+    private Mono<Integer> readRedisCounter(String key) {
+        if (reactiveRedisManager == null || key == null || key.isEmpty()) {
+            return Mono.just(0);
+        }
+        return reactiveRedisManager.get(key)
+                .map(this::safeParseInt)
+                .defaultIfEmpty(0)
+                .onErrorResume(error -> {
+                    log.warn("读取Redis键 {} 失败: {}", key, error.getMessage());
+                    return Mono.just(0);
+                });
+    }
+    
+    private String buildRoleUserVerificationKey(String systemName, String action, String dateStr) {
+        if (LEGACY_SYSTEM.equalsIgnoreCase(systemName)) {
+            return String.format("role_user:%s:verification:passed", action);
+        }
+        return String.format("%s:role_user:%s:verification:passed:%s", systemName, action, dateStr);
+    }
+    
+    private String buildRoleUserSuccessKey(String systemName, String action, String dateStr) {
+        if (LEGACY_SYSTEM.equalsIgnoreCase(systemName)) {
+            return String.format("role_user:%s:operation:success", action);
+        }
+        return String.format("%s:role_user:%s:operation:success:%s", systemName, action, dateStr);
+    }
+    
+    private List<LocalDate> buildDateRange(LocalDate start, LocalDate end) {
+        if (start == null || end == null || start.isAfter(end)) {
+            return Collections.emptyList();
+        }
+        List<LocalDate> dates = new ArrayList<>();
+        LocalDate current = start;
+        while (!current.isAfter(end)) {
+            dates.add(current);
+            current = current.plusDays(1);
+        }
+        return dates;
+    }
+    
+    private int safeParseInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String str) {
+            try {
+                return Integer.parseInt(str);
+            } catch (NumberFormatException ignored) {
+                try {
+                    Double decimal = Double.parseDouble(str);
+                    return decimal.intValue();
+                } catch (NumberFormatException ignoredAgain) {
+                    return 0;
+                }
+            }
+        }
+        return 0;
+    }
+    
     // ================== 数据结构类 ==================
     
     /**
@@ -1126,6 +1372,66 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
     private static class SyncStats {
         private UserStats roles;
         private UserStats users;
+    }
+    
+    @lombok.Getter
+    private static class RedisFileNotChangeCounts {
+        private final int verificationPassed;
+        private final int permissionSuccess;
+
+        RedisFileNotChangeCounts(int verificationPassed, int permissionSuccess) {
+            this.verificationPassed = verificationPassed;
+            this.permissionSuccess = permissionSuccess;
+        }
+
+        boolean hasData() {
+            return verificationPassed > 0 || permissionSuccess > 0;
+        }
+    }
+
+    @lombok.Getter
+    private static class RedisHashCounters {
+        private final int messageCount;
+        private final int userCount;
+
+        RedisHashCounters(int messageCount, int userCount) {
+            this.messageCount = messageCount;
+            this.userCount = userCount;
+        }
+
+        static RedisHashCounters empty() {
+            return new RedisHashCounters(0, 0);
+        }
+    }
+
+    @lombok.Getter
+    private static class RoleUserRedisStats {
+        private final int addVerificationMessages;
+        private final int addVerificationUsers;
+        private final int addSuccessMessages;
+        private final int addSuccessUsers;
+        private final int delVerificationMessages;
+        private final int delVerificationUsers;
+        private final int delSuccessMessages;
+        private final int delSuccessUsers;
+
+        RoleUserRedisStats(int addVerificationMessages, int addVerificationUsers,
+                           int addSuccessMessages, int addSuccessUsers,
+                           int delVerificationMessages, int delVerificationUsers,
+                           int delSuccessMessages, int delSuccessUsers) {
+            this.addVerificationMessages = addVerificationMessages;
+            this.addVerificationUsers = addVerificationUsers;
+            this.addSuccessMessages = addSuccessMessages;
+            this.addSuccessUsers = addSuccessUsers;
+            this.delVerificationMessages = delVerificationMessages;
+            this.delVerificationUsers = delVerificationUsers;
+            this.delSuccessMessages = delSuccessMessages;
+            this.delSuccessUsers = delSuccessUsers;
+        }
+
+        static RoleUserRedisStats empty() {
+            return new RoleUserRedisStats(0, 0, 0, 0, 0, 0, 0, 0);
+        }
     }
     
     // ================== 辅助方法 ==================
@@ -2141,4 +2447,52 @@ public class ReactiveDataStatisticsServiceImpl implements DataStatisticsService 
                         .build())
                 .build();
     }
+    
+    private SystemDailyStats buildSystemDailyStats(String systemName,
+                                                  FileOperationStats fileAddStats,
+                                                  FileOperationStats fileDelStats,
+                                                  FileNotChangeStats fileNotChangeStats,
+                                                  RoleOperationStats roleOpsStats) {
+        return SystemDailyStats.builder()
+                .systemName(systemName)
+                .fileOps(FileOpsStats.builder()
+                        .add(fileAddStats.getAddCount() != null ? fileAddStats.getAddCount() : 0)
+                        .delete(fileDelStats.getDeleteOperations() != null ? fileDelStats.getDeleteOperations() : 0)
+                        .build())
+                .fileUpdate(FileUpdateStats.builder()
+                        .fileUpdateRecords(fileNotChangeStats.getSyncRecordCount())
+                        .roleAdd(fileNotChangeStats.getSyncRoles().getAddCount())
+                        .roleDelete(fileNotChangeStats.getSyncRoles().getDelCount())
+                        .userAdd(fileNotChangeStats.getSyncUsers().getAddCount())
+                        .userDelete(fileNotChangeStats.getSyncUsers().getDelCount())
+                        .build())
+                .virtualGroupOps(VirtualGroupOpsStats.builder()
+                        .roleGroupCreate(roleOpsStats.getSyncOperations().getOrDefault("ADD_ROLE", 0))
+                        .roleGroupCreateUsers(roleOpsStats.getSyncUsers().getOrDefault("ADD_ROLE", 0))
+                        .roleGroupDelete(roleOpsStats.getSyncOperations().getOrDefault("DEL_ROLE", 0))
+                        .roleAddRecords(roleOpsStats.getSyncOperations().getOrDefault("ROLE_ADD_USER", 0))
+                        .roleAddUsers(roleOpsStats.getSyncUsers().getOrDefault("ROLE_ADD_USER", 0))
+                        .roleDeleteRecords(roleOpsStats.getSyncOperations().getOrDefault("ROLE_DEL_USER", 0))
+                        .roleDeleteUsers(roleOpsStats.getSyncUsers().getOrDefault("ROLE_DEL_USER", 0))
+                        .build())
+                .kafkaMessageStats(KafkaMessageStats.builder()
+                        .fileAddMessages(fileAddStats.getKafkaMessageCount())
+                        .fileDeleteMessages(fileDelStats.getKafkaMessageCount())
+                        .fileUpdateMessages(fileNotChangeStats.getKafkaMessageCount())
+                        .roleGroupCreateMessages(roleOpsStats.getKafkaMessages().getOrDefault("ADD_ROLE", 0))
+                        .roleGroupDeleteMessages(roleOpsStats.getKafkaMessages().getOrDefault("DEL_ROLE", 0))
+                        .roleAddUserMessages(roleOpsStats.getKafkaMessages().getOrDefault("ROLE_ADD_USER", 0))
+                        .roleDeleteUserMessages(roleOpsStats.getKafkaMessages().getOrDefault("ROLE_DEL_USER", 0))
+                        .fileUpdate(FilePermissionUserStats.builder()
+                                .addUsers(fileNotChangeStats.getKafkaUsers().getAddCount())
+                                .deleteUsers(fileNotChangeStats.getKafkaUsers().getDelCount())
+                                .build())
+                        .roleUserChange(RoleUserChangeStats.builder()
+                                .addUsers(roleOpsStats.getKafkaUsers().getOrDefault("ROLE_ADD_USER", 0))
+                                .deleteUsers(roleOpsStats.getKafkaUsers().getOrDefault("ROLE_DEL_USER", 0))
+                                .build())
+                        .build())
+                .build();
+    }
+
 }

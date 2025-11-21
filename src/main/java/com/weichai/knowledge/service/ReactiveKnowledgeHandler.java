@@ -195,7 +195,11 @@ public class ReactiveKnowledgeHandler {
     private Mono<Map<String, Object>> callSystemInfoApi(String normalizedSystemName, String cacheKey) {
         log.info("调用查询系统信息API，system={}", normalizedSystemName);
 
-        return webClient.get()
+        Map<String, Object> requestLog = Map.of(
+                "system", "system_" + normalizedSystemName
+        );
+
+        Mono<Map<String, Object>> pipeline = webClient.get()
             .uri(uriBuilder -> uriBuilder
                 .path("/super-help/openapi/v1/querySystemInfo")
                 .queryParam("system", "system_" + normalizedSystemName)
@@ -246,6 +250,8 @@ public class ReactiveKnowledgeHandler {
                 log.error("系统信息API调用异常: system={}, error={}", normalizedSystemName, errorMsg, error);
                 return new ExternalApiException("查询系统信息", errorMsg, 500);
             });
+
+        return logExternalCall("/super-help/openapi/v1/querySystemInfo", requestLog, pipeline);
     }
     
     /**
@@ -408,24 +414,16 @@ public class ReactiveKnowledgeHandler {
             String repoName, Integer scope, HttpHeaders headers) {
         
         CreateRepoRequest requestBody = new CreateRepoRequest(departmentId, intro, repoName, scope);
-        
-        return Mono.fromCallable(() -> {
-                try {
-                    log.info("调用创建知识库API，请求参数: {}", objectMapper.writeValueAsString(requestBody));
-                } catch (Exception e) {
-                    log.warn("序列化请求参数时出错: {}", e.getMessage());
-                }
-                return requestBody;
-            })
-            .flatMap(request -> 
-                webClient.post()
-                    .uri("/path_wiki/wiki/ku/openapi/v3/repo/createRepo")
-                    .headers(httpHeaders -> httpHeaders.addAll(headers))
-                    .bodyValue(request)
-                    .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<ApiResponse<String>>() {})
-                    .doOnNext(response -> log.info("创建知识库API响应: {}", response))
-            );
+
+        Mono<ApiResponse<String>> pipeline = webClient.post()
+                .uri("/path_wiki/wiki/ku/openapi/v3/repo/createRepo")
+                .headers(httpHeaders -> httpHeaders.addAll(headers))
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<ApiResponse<String>>() {})
+                .doOnNext(response -> log.info("创建知识库API响应: {}", response));
+
+        return logExternalCall("/path_wiki/wiki/ku/openapi/v3/repo/createRepo", requestBody, pipeline);
     }
     
     /**
@@ -581,22 +579,14 @@ public class ReactiveKnowledgeHandler {
      * 调用导入API
      */
     private Mono<ApiResponse<Object>> callImportApi(ImportToRepoRequest requestBody, HttpHeaders headers) {
-        return Mono.fromCallable(() -> {
-                try {
-                    log.info("调用导入文件到知识库API，请求参数: {}", objectMapper.writeValueAsString(requestBody));
-                } catch (Exception e) {
-                    log.warn("序列化请求参数时出错: {}", e.getMessage());
-                }
-                return requestBody;
-            })
-            .flatMap(request ->
-                webClient.post()
-                    .uri("/path_wiki/wiki/ku/openapi/client/files/import")
-                    .headers(httpHeaders -> httpHeaders.addAll(headers))
-                    .bodyValue(request)
-                    .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<ApiResponse<Object>>() {})
-            );
+        Mono<ApiResponse<Object>> pipeline = webClient.post()
+                .uri("/path_wiki/wiki/ku/openapi/client/files/import")
+                .headers(httpHeaders -> httpHeaders.addAll(headers))
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<ApiResponse<Object>>() {});
+
+        return logExternalCall("/path_wiki/wiki/ku/openapi/client/files/import", requestBody, pipeline);
     }
     
     /**
@@ -606,10 +596,16 @@ public class ReactiveKnowledgeHandler {
         Map<String, Object> data = new HashMap<>();
         if (response != null) {
             data.put("success", response.isSuccess());
-            data.put("data", response.getResultData());
-            data.put("message", response.getErrorMessage());
             data.put("returnCode", response.returnCode());
+            data.put("returnMessage", response.returnMessage());
             data.put("code", response.code());
+            data.put("message", response.message());
+            data.put("msg", response.msg());
+            data.put("errorMessage", response.getErrorMessage());
+            data.put("traceId", response.traceId());
+            data.put("result", response.result());
+            data.put("data", response.data());
+            data.put("resultData", response.getResultData());
         }
         
         try {
@@ -668,12 +664,14 @@ public class ReactiveKnowledgeHandler {
      * 调用文档状态API
      */
     private Mono<Map<String, Object>> callFileStatusApi(List<String> docGuids) {
-        return webClient.post()
+        Mono<Map<String, Object>> pipeline = webClient.post()
             .uri("/kmss/openapi/data/file/info/list")
             .headers(httpHeaders -> baseHeaders.forEach(httpHeaders::add))
             .bodyValue(docGuids)
             .retrieve()
             .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        return logExternalCall("/kmss/openapi/data/file/info/list", docGuids, pipeline);
     }
     
     /**
@@ -874,12 +872,14 @@ public class ReactiveKnowledgeHandler {
      * 调用同步虚拟用户组API
      */
     private Mono<Map<String, Object>> callSyncVirtualGroupApi(Map<String, Object> requestBody, HttpHeaders headers) {
-        return webClient.post()
-            .uri("/custom/openapi/v1/virtualGroup/sync")
-            .headers(httpHeaders -> httpHeaders.addAll(headers))
-            .bodyValue(requestBody)
-            .retrieve()
-            .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {});
+        Mono<Map<String, Object>> pipeline = webClient.post()
+                .uri("/custom/openapi/v1/virtualGroup/sync")
+                .headers(httpHeaders -> httpHeaders.addAll(headers))
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        return logExternalCall("/custom/openapi/v1/virtualGroup/sync", requestBody, pipeline);
     }
     
     /**
@@ -979,12 +979,14 @@ public class ReactiveKnowledgeHandler {
      * 调用虚拟群组关系API
      */
     private Mono<Map<String, Object>> callVirtualGroupRelationApi(Map<String, Object> requestBody, HttpHeaders headers) {
-        return webClient.post()
-            .uri("/custom/openapi/v1/virtualGroup/relation")
-            .headers(httpHeaders -> httpHeaders.addAll(headers))
-            .bodyValue(requestBody)
-            .retrieve()
-            .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {});
+        Mono<Map<String, Object>> pipeline = webClient.post()
+                .uri("/custom/openapi/v1/virtualGroup/relation")
+                .headers(httpHeaders -> httpHeaders.addAll(headers))
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        return logExternalCall("/custom/openapi/v1/virtualGroup/relation", requestBody, pipeline);
     }
     
     /**
@@ -1241,7 +1243,7 @@ public class ReactiveKnowledgeHandler {
     private Mono<Map<String, Object>> callDocumentOnlineApi(String repoid, 
             List<Map<String, Object>> requestData, HttpHeaders headers) {
         
-        return webClient.post()
+        Mono<Map<String, Object>> pipeline = webClient.post()
             .uri(uriBuilder -> uriBuilder
                 .path("/kmss/openapi/search-platform/datamanage/fulltext/online")
                 .queryParam("repoGuid", repoid)
@@ -1250,6 +1252,12 @@ public class ReactiveKnowledgeHandler {
             .bodyValue(requestData)
             .retrieve()
             .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        Map<String, Object> logPayload = new HashMap<>();
+        logPayload.put("repoGuid", repoid);
+        logPayload.put("body", requestData);
+
+        return logExternalCall("/kmss/openapi/search-platform/datamanage/fulltext/online", logPayload, pipeline);
     }
     
     /**
@@ -1390,7 +1398,7 @@ public class ReactiveKnowledgeHandler {
      * 测试外部API连接
      */
     private Mono<Map<String, Object>> testExternalApiConnection() {
-        return webClient.get()
+        Mono<Map<String, Object>> pipeline = webClient.get()
             .uri("/super-help/openapi/v1/querySystemInfo?system=health_check")
             .headers(httpHeaders -> baseHeaders.forEach(httpHeaders::add))
             .retrieve()
@@ -1411,6 +1419,8 @@ public class ReactiveKnowledgeHandler {
                 result.put("base_url", applicationProperties.getApi().getBaseUrl());
                 return new RuntimeException("API连接测试失败", error);
             });
+
+        return logExternalCall("/super-help/openapi/v1/querySystemInfo", Map.of("system", "health_check"), pipeline);
     }
 
     /**
@@ -1644,12 +1654,14 @@ public class ReactiveKnowledgeHandler {
                 return requestBody;
             })
             .flatMap(requestBody -> {
-                return webClient.post()
-                    .uri("/path_wiki/wiki/ku/openapi/doc/v1/members")
-                    .headers(httpHeaders -> httpHeaders.addAll(headers))
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                Mono<Map<String, Object>> apiCall = webClient.post()
+                        .uri("/path_wiki/wiki/ku/openapi/doc/v1/members")
+                        .headers(httpHeaders -> httpHeaders.addAll(headers))
+                        .bodyValue(requestBody)
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {});
+
+                return logExternalCall("/path_wiki/wiki/ku/openapi/doc/v1/members", requestBody, apiCall)
                     .doOnNext(data -> log.info("设置文档权限API原始响应: {}", data))
                     .flatMap(data -> {
                         // 检查响应数据是否有效
@@ -1773,10 +1785,9 @@ public class ReactiveKnowledgeHandler {
             "withDescendants", withDescendants
         );
         
-        log.info("调用删除文档API，请求参数: {}", requestBody);
         log.debug("请求头: {}", headers);
-        
-        return webClient.post()
+
+        Mono<Map<String, Object>> pipeline = webClient.post()
             .uri("/path_wiki/wiki/ku/openapi/docs/delete")
             .headers(httpHeaders -> httpHeaders.addAll(headers))
             .bodyValue(requestBody)
@@ -1786,6 +1797,8 @@ public class ReactiveKnowledgeHandler {
             .timeout(Duration.ofSeconds(60))
             .doOnNext(response -> log.info("删除文档API响应: {}", response))
             .onErrorMap(error -> new RuntimeException("删除文档API调用失败: " + error.getMessage(), error));
+
+        return logExternalCall("/path_wiki/wiki/ku/openapi/docs/delete", requestBody, pipeline);
     }
     
     /**
@@ -1930,7 +1943,7 @@ public class ReactiveKnowledgeHandler {
     }
 
     private Mono<Map<String, Object>> callDepartmentSyncApi(Map<String, Object> payload) {
-        return webClient.post()
+        Mono<Map<String, Object>> pipeline = webClient.post()
             .uri("/super-help/openapi/v1/department/sync")
             .headers(h -> baseHeaders.forEach(h::add))
             .bodyValue(payload)
@@ -1944,6 +1957,8 @@ public class ReactiveKnowledgeHandler {
                     log.info("创建系统部门API响应(序列化失败，原始对象输出): {}", data);
                 }
             });
+
+        return logExternalCall("/super-help/openapi/v1/department/sync", payload, pipeline);
     }
 
     /**
@@ -2069,7 +2084,7 @@ public class ReactiveKnowledgeHandler {
     }
 
     private Mono<Map<String, Object>> callUserSyncApi(Map<String, Object> payload) {
-        return webClient.post()
+        Mono<Map<String, Object>> pipeline = webClient.post()
             .uri("/super-help/openapi/v1/user/sync")
             .headers(h -> baseHeaders.forEach(h::add))
             .bodyValue(payload)
@@ -2083,6 +2098,8 @@ public class ReactiveKnowledgeHandler {
                     log.info("用户管理API响应(序列化失败，原始对象输出): {}", data);
                 }
             });
+
+        return logExternalCall("/super-help/openapi/v1/user/sync", payload, pipeline);
     }
 
     // --------- 本段新增方法的内部通用辅助 ----------
@@ -2122,6 +2139,23 @@ public class ReactiveKnowledgeHandler {
         Object rm = data.get("returnMessage");
         if (rm == null) rm = data.get("msg");
         return rm != null ? String.valueOf(rm) : defaultMsg;
+    }
+
+    private <T> Mono<T> logExternalCall(String apiName, Object requestPayload, Mono<T> publisher) {
+        return Mono.defer(() -> {
+            log.info("调用外部接口 [{}] 请求参数: {}", apiName, toJsonSafe(requestPayload));
+            return publisher
+                .doOnNext(resp -> log.info("外部接口 [{}] 响应: {}", apiName, toJsonSafe(resp)))
+                .doOnError(err -> log.error("外部接口 [{}] 异常: {}", apiName, err.getMessage()));
+        });
+    }
+
+    private String toJsonSafe(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return String.valueOf(obj);
+        }
     }
 
     /**

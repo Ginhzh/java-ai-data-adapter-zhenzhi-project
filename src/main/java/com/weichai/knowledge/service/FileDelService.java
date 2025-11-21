@@ -1,12 +1,14 @@
 package com.weichai.knowledge.service;
 
 import com.weichai.knowledge.entity.FileDel;
+import com.weichai.knowledge.redis.ReactiveRedisManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.*;
 
 /**
@@ -19,6 +21,14 @@ public class FileDelService {
     
     @Autowired
     private ReactiveKnowledgeHandler reactiveKnowledgeHandler;
+
+    @Autowired
+    private ReactiveRedisManager reactiveRedisManager;
+
+    private static final String DELETE_VERIFICATION_KEY_FMT = "%s:knowledge:delete:verification:passed:%s";
+    private static final String DELETE_SUCCESS_KEY_FMT = "%s:knowledge:delete:operation:success:%s";
+    private static final String HASH_MESSAGE_FIELD = "message_count";
+    private static final String HASH_DOCUMENT_FIELD = "document_count";
     
     /**
      * 格式化知识库名称
@@ -121,10 +131,11 @@ public class FileDelService {
                     .flatMap(tuple -> {
                         boolean step1Success = tuple.getT1();
                         boolean step2Success = tuple.getT2();
-                        
+
                         if (step1Success && step2Success) {
-                            return executeDocumentDeletion(result.repoId, result.zhenzhiFileId, 
-                                fileName, systemName, result);
+                            return incrHashCounters(getVerificationKey(systemName), systemName, "delete verification")
+                                .then(executeDocumentDeletion(result.repoId, result.zhenzhiFileId, 
+                                    fileName, systemName, result));
                         } else {
                             log.warn("跳过文档删除：前置条件未满足");
                             result.errorMessage = "前置步骤失败，跳过文档删除";
@@ -134,6 +145,9 @@ public class FileDelService {
                     .doOnNext(step3Success -> {
                         result.deleteStatus = step3Success ? 1 : 0;
                         result.success = step3Success;
+                        if (step3Success) {
+                            incrHashCounters(getSuccessKey(systemName), systemName, "delete success").subscribe();
+                        }
                     })
                     // 步骤4：无论前面成功与否，都要写入状态表
                     .then(recordDocumentStatus(systemName, fileId, fileNumber, result.deleteStatus, 
@@ -344,5 +358,26 @@ public class FileDelService {
         result.put("message", status + ": " + message);
         result.put("timestamp", LocalDateTime.now().toString());
         return result;
+    }
+
+    private String today() {
+        return LocalDate.now().toString();
+    }
+
+    private String getVerificationKey(String systemName) {
+        return String.format(DELETE_VERIFICATION_KEY_FMT, systemName, today());
+    }
+
+    private String getSuccessKey(String systemName) {
+        return String.format(DELETE_SUCCESS_KEY_FMT, systemName, today());
+    }
+
+    private Mono<Void> incrHashCounters(String key, String systemName, String stage) {
+        return reactiveRedisManager.hincrBy(key, HASH_MESSAGE_FIELD, 1)
+            .then(reactiveRedisManager.hincrBy(key, HASH_DOCUMENT_FIELD, 1))
+            .doOnSuccess(v -> log.info("Redis计数成功 [{}] 系统={} key={}", stage, systemName, key))
+            .doOnError(e -> log.warn("Redis计数失败 [{}] 系统={} key={} err={}", stage, systemName, key, e.getMessage()))
+            .onErrorResume(e -> Mono.empty())
+            .then();
     }
 }

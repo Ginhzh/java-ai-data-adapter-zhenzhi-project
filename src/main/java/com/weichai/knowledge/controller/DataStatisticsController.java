@@ -143,4 +143,14 @@ public class DataStatisticsController {
         return dataStatisticsService.getSystemDailyStatistics()
                 .map(ResponseEntity::ok);
     }
+
+    /**
+     * 基于Redis优先的数据源获取当天各系统综合统计，
+     * 无Redis数据时自动降级为数据库查询，结构与 /system-daily 保持一致。
+     */
+    @GetMapping("/redis/system-daily")
+    public Mono<ResponseEntity<SystemDailyStatisticsResponse>> getRedisSystemDailyStatistics() {
+        return dataStatisticsService.getSystemDailyStatisticsWithRedis()
+                .map(ResponseEntity::ok);
+    }
 }

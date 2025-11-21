@@ -75,4 +75,9 @@ public interface DataStatisticsService {
      * 获取系统每日统计
      */
     Mono<SystemDailyStatisticsResponse> getSystemDailyStatistics();
-} 
+
+    /**
+     * 基于Redis优先的系统每日统计（无缓存降级到数据库）
+     */
+    Mono<SystemDailyStatisticsResponse> getSystemDailyStatisticsWithRedis();
+}

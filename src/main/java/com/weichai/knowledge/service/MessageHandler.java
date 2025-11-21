@@ -2,7 +2,6 @@ package com.weichai.knowledge.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.weichai.knowledge.config.ApplicationProperties;
 import com.weichai.knowledge.entity.*;
 import com.weichai.knowledge.repository.KafkaMessageLogRepository;
 import com.weichai.knowledge.service.ReactiveKnowledgeAddService;
@@ -35,8 +34,38 @@ import java.util.UUID;
 @Service
 public class MessageHandler {
     
-    @Autowired
-    private ApplicationProperties applicationProperties;
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.topics.file-add}")
+    private String fileAddTopic;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.topics.file-del}")
+    private String fileDelTopic;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.topics.file-not-change}")
+    private String fileNotChangeTopic;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.topics.role-add}")
+    private String roleAddTopic;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.topics.role-del}")
+    private String roleDelTopic;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.topics.role-add-user}")
+    private String roleAddUserTopic;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.topics.role-del-user}")
+    private String roleDelUserTopic;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.group-id}")
+    private String kafkaGroupId;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.concurrency.file-add}")
+    private String fileAddConcurrency;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.concurrency.file-ops}")
+    private String fileOpsConcurrency;
+
+    @org.springframework.beans.factory.annotation.Value("${app.kafka.concurrency.role-user}")
+    private String roleUserConcurrency;
     
     @Autowired
     private KafkaMessageLogRepository kafkaMessageLogRepository;
@@ -63,9 +92,9 @@ public class MessageHandler {
      * 单独监听器，低并发，避免阻塞其他消息
      */
     @KafkaListener(
-        topics = "#{@applicationProperties.kafka.topicPrefix}FILE_ADD",
-        groupId = "#{@applicationProperties.kafka.groupId}",
-        concurrency = "1"
+        topics = "${app.kafka.topics.file-add}",
+        groupId = "${app.kafka.group-id}",
+        concurrency = "${app.kafka.concurrency.file-add}"
     )
     public void handleFileAddMessage(@Payload String message,
                                    @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
@@ -112,11 +141,11 @@ public class MessageHandler {
      */
     @KafkaListener(
         topics = {
-            "#{@applicationProperties.kafka.topicPrefix}FILE_DEL",
-            "#{@applicationProperties.kafka.topicPrefix}FILE_NOT_CHANGE"
+            "${app.kafka.topics.file-del}",
+            "${app.kafka.topics.file-not-change}"
         },
-        groupId = "#{@applicationProperties.kafka.groupId}",
-        concurrency = "3"
+        groupId = "${app.kafka.group-id}",
+        concurrency = "${app.kafka.concurrency.file-ops}"
     )
     public void handleFileOpsMessage(@Payload String message,
                                    @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
@@ -163,13 +192,13 @@ public class MessageHandler {
      */
     @KafkaListener(
         topics = {
-            "#{@applicationProperties.kafka.topicPrefix}ADD_ROLE",
-            "#{@applicationProperties.kafka.topicPrefix}DEL_ROLE",
-            "#{@applicationProperties.kafka.topicPrefix}ROLE_ADD_USER",
-            "#{@applicationProperties.kafka.topicPrefix}ROLE_DEL_USER"
+            "${app.kafka.topics.role-add}",
+            "${app.kafka.topics.role-del}",
+            "${app.kafka.topics.role-add-user}",
+            "${app.kafka.topics.role-del-user}"
         },
-        groupId = "#{@applicationProperties.kafka.groupId}",
-        concurrency = "3"
+        groupId = "${app.kafka.group-id}",
+        concurrency = "${app.kafka.concurrency.role-user}"
     )
     public void handleRoleUserMessage(@Payload String message,
                                     @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
@@ -242,7 +271,6 @@ public class MessageHandler {
      * 记录Kafka消息到数据库
      * 使用独立事务，避免影响消息处理性能
      */
-    @Transactional
     private void recordKafkaMessage(String logId, Map<String, Object> messageData, String rawMessage) {
         try {
             String systemName = getSystemName(messageData);
@@ -267,8 +295,10 @@ public class MessageHandler {
             kafkaLog.setMessageDateTime(messageDateTime);
             kafkaLog.setFileNumber(fileNumber);
             
-            kafkaMessageLogRepository.save(kafkaLog);
-            log.info("已记录Kafka消息，ID: {}", logId);
+            kafkaMessageLogRepository.save(kafkaLog)
+                .doOnSuccess(saved -> log.info("已记录Kafka消息，ID: {}", logId))
+                .doOnError(error -> log.error("异步记录Kafka消息失败: {}", error.getMessage(), error))
+                .subscribe();
             
         } catch (Exception e) {
             log.error("记录Kafka消息失败: {}", e.getMessage(), e);
@@ -413,6 +443,4 @@ public class MessageHandler {
         }
     }
 } 
-
-
 

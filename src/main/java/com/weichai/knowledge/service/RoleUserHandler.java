@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.weichai.knowledge.entity.RoleUserMessage;
 import com.weichai.knowledge.utils.ErrorHandler;
 import com.weichai.knowledge.config.ApplicationProperties;
+import com.weichai.knowledge.redis.ReactiveRedisManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.Arrays;
 
@@ -37,19 +39,29 @@ public class RoleUserHandler {
     private static final int BATCH_SIZE = 100;
     private static final Duration RETRY_DELAY = Duration.ofSeconds(2);
     private static final String DEFAULT_TENANT_ID = "85d5572986784a53a649726085691974";
+
+    private static final String ADD_USER_VERIFICATION_FMT = "%s:role_user:add_user:verification:passed:%s";
+    private static final String ADD_USER_SUCCESS_FMT = "%s:role_user:add_user:operation:success:%s";
+    private static final String DEL_USER_VERIFICATION_FMT = "%s:role_user:del_user:verification:passed:%s";
+    private static final String DEL_USER_SUCCESS_FMT = "%s:role_user:del_user:operation:success:%s";
+    private static final String HASH_MESSAGE_FIELD = "message_count";
+    private static final String HASH_USER_FIELD = "user_count";
     
     private final WebClient webClient;
     private final ErrorHandler errorHandler;
     private final ObjectMapper objectMapper;
     private final ApplicationProperties applicationProperties;
+    private final ReactiveRedisManager reactiveRedisManager;
     
     public RoleUserHandler(WebClient.Builder webClientBuilder, 
                           ErrorHandler errorHandler,
                           ObjectMapper objectMapper,
-                          ApplicationProperties applicationProperties) {
+                          ApplicationProperties applicationProperties,
+                          ReactiveRedisManager reactiveRedisManager) {
         this.errorHandler = errorHandler;
         this.objectMapper = objectMapper;
         this.applicationProperties = applicationProperties;
+        this.reactiveRedisManager = reactiveRedisManager;
         
         // 配置WebClient
         this.webClient = webClientBuilder
@@ -112,15 +124,51 @@ public class RoleUserHandler {
         List<Mono<Boolean>> operations = new ArrayList<>();
         
         // 处理用户绑定 (ROLE_ADD_USER)
-        if ("ROLE_ADD_USER".equals(message.getMessageType()) &&
-            message.getAddUserList() != null && !message.getAddUserList().isEmpty()) {
-            operations.add(bindUsersToVirtualGroup(message.getRoleId(), message.getAddUserList(), message));
+        if ("ROLE_ADD_USER".equals(message.getMessageType())) {
+            List<String> addUsers = message.getAddUserList() != null ? message.getAddUserList() : Collections.emptyList();
+            int userInc = addUsers.size();
+            Mono<Boolean> op = incrRoleUserCounters(addUserVerificationKey(message.getSystemName()), userInc,
+                    message.getSystemName(), "ROLE_ADD_USER verification")
+                .then(Mono.defer(() -> {
+                    if (addUsers.isEmpty()) {
+                        log.info("ROLE_ADD_USER: 无需绑定用户，roleId={}", message.getRoleId());
+                        return Mono.just(true);
+                    }
+                    return bindUsersToVirtualGroup(message.getRoleId(), addUsers, message)
+                        .flatMap(success -> {
+                            if (Boolean.TRUE.equals(success)) {
+                                return incrRoleUserCounters(addUserSuccessKey(message.getSystemName()), userInc,
+                                        message.getSystemName(), "ROLE_ADD_USER success")
+                                    .thenReturn(true);
+                            }
+                            return Mono.just(false);
+                        });
+                }));
+            operations.add(op);
         }
 
         // 处理用户解绑 (ROLE_DEL_USER)
-        if ("ROLE_DEL_USER".equals(message.getMessageType()) &&
-            message.getDelUserList() != null && !message.getDelUserList().isEmpty()) {
-            operations.add(unbindUsersFromVirtualGroup(message.getRoleId(), message.getDelUserList(), message));
+        if ("ROLE_DEL_USER".equals(message.getMessageType())) {
+            List<String> delUsers = message.getDelUserList() != null ? message.getDelUserList() : Collections.emptyList();
+            int userInc = delUsers.size();
+            Mono<Boolean> op = incrRoleUserCounters(delUserVerificationKey(message.getSystemName()), userInc,
+                    message.getSystemName(), "ROLE_DEL_USER verification")
+                .then(Mono.defer(() -> {
+                    if (delUsers.isEmpty()) {
+                        log.info("ROLE_DEL_USER: 无需解绑用户，roleId={}", message.getRoleId());
+                        return Mono.just(true);
+                    }
+                    return unbindUsersFromVirtualGroup(message.getRoleId(), delUsers, message)
+                        .flatMap(success -> {
+                            if (Boolean.TRUE.equals(success)) {
+                                return incrRoleUserCounters(delUserSuccessKey(message.getSystemName()), userInc,
+                                        message.getSystemName(), "ROLE_DEL_USER success")
+                                    .thenReturn(true);
+                            }
+                            return Mono.just(false);
+                        });
+                }));
+            operations.add(op);
         }
         
         if (operations.isEmpty()) {
@@ -339,26 +387,28 @@ public class RoleUserHandler {
                                                               int errorType,
                                                               String step,
                                                               RoleUserMessage message) {
-        return webClient.post()
-            .uri(endpoint)
-            .bodyValue(requestBody)
-            .retrieve()
-            .bodyToMono(Map.class)
-            .retryWhen(Retry.fixedDelay(MAX_RETRIES, RETRY_DELAY)
-                .doBeforeRetry(retrySignal -> 
-                    log.info("{} 失败，重试次数: {}/{}", step, retrySignal.totalRetries() + 1, MAX_RETRIES)
+        Mono<Map<String, Object>> pipeline = webClient.post()
+                .uri(endpoint)
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .retryWhen(Retry.fixedDelay(MAX_RETRIES, RETRY_DELAY)
+                        .doBeforeRetry(retrySignal ->
+                                log.info("{} 失败，重试次数: {}/{}", step, retrySignal.totalRetries() + 1, MAX_RETRIES)
+                        )
                 )
-            )
-            .doOnSuccess(response -> {
-                if (!isSuccessResponse(response)) {
-                    throw new RuntimeException("API调用失败: " + response.get("message"));
-                }
-            })
-            .onErrorResume(error -> {
-                logError(errorType, step, message, error);
-                return Mono.empty();
-            })
-            .map(response -> isSuccessResponse(response) ? response : null);
+                .doOnSuccess(response -> {
+                    if (!isSuccessResponse(response)) {
+                        throw new RuntimeException("API调用失败: " + response.get("message"));
+                    }
+                })
+                .onErrorResume(error -> {
+                    logError(errorType, step, message, error);
+                    return Mono.empty();
+                })
+                .map(response -> isSuccessResponse(response) ? response : null);
+
+        return logExternalCall(endpoint, requestBody, pipeline);
     }
     
     /**
@@ -385,7 +435,7 @@ public class RoleUserHandler {
     private boolean isSuccessResponse(Map<String, Object> response) {
         return response != null && Boolean.TRUE.equals(response.get("success"));
     }
-    
+
     /**
      * 记录错误日志
      */
@@ -398,7 +448,7 @@ public class RoleUserHandler {
             "system_name", message.getSystemName(),
             "error_data", error.getMessage()
         );
-        
+
         errorHandler.logError(
             errorType,
             message.getRoleId(),
@@ -406,5 +456,51 @@ public class RoleUserHandler {
             errorMsg,
             params
         );
+    }
+
+    private String today() {
+        return LocalDate.now().toString();
+    }
+
+    private String addUserVerificationKey(String systemName) {
+        return String.format(ADD_USER_VERIFICATION_FMT, systemName, today());
+    }
+
+    private String addUserSuccessKey(String systemName) {
+        return String.format(ADD_USER_SUCCESS_FMT, systemName, today());
+    }
+
+    private String delUserVerificationKey(String systemName) {
+        return String.format(DEL_USER_VERIFICATION_FMT, systemName, today());
+    }
+
+    private String delUserSuccessKey(String systemName) {
+        return String.format(DEL_USER_SUCCESS_FMT, systemName, today());
+    }
+
+    private Mono<Void> incrRoleUserCounters(String key, int userIncrement, String systemName, String stage) {
+        return reactiveRedisManager.hincrBy(key, HASH_MESSAGE_FIELD, 1)
+            .then(reactiveRedisManager.hincrBy(key, HASH_USER_FIELD, userIncrement))
+            .doOnSuccess(v -> log.info("Redis计数成功 [{}] 系统={} key={} user+{}", stage, systemName, key, userIncrement))
+            .doOnError(e -> log.warn("Redis计数失败 [{}] 系统={} key={} err={}", stage, systemName, key, e.getMessage()))
+            .onErrorResume(e -> Mono.empty())
+            .then();
+    }
+
+    private <T> Mono<T> logExternalCall(String endpoint, Object requestBody, Mono<T> publisher) {
+        return Mono.defer(() -> {
+            log.info("调用外部接口 [{}] 请求参数: {}", endpoint, toJsonSafe(requestBody));
+            return publisher
+                    .doOnNext(resp -> log.info("外部接口 [{}] 响应: {}", endpoint, toJsonSafe(resp)))
+                    .doOnError(err -> log.error("外部接口 [{}] 异常: {}", endpoint, err.getMessage()));
+        });
+    }
+
+    private String toJsonSafe(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return String.valueOf(obj);
+        }
     }
 }

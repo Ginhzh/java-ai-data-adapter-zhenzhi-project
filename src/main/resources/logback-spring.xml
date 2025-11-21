@@ -52,7 +52,7 @@
     </appender>
     
     <!-- 特定包的日志配置 -->
-    <logger name="com.weichai.knowledge.utils.MessageHandler" level="INFO" additivity="false">
+    <logger name="com.weichai.knowledge.service.MessageHandler" level="INFO" additivity="false">
         <appender-ref ref="KAFKA_FILE"/>
         <appender-ref ref="CONSOLE"/>
     </logger>
