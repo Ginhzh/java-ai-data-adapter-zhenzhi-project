@@ -596,10 +596,16 @@ public class ReactiveKnowledgeHandler {
         Map<String, Object> data = new HashMap<>();
         if (response != null) {
             data.put("success", response.isSuccess());
-            data.put("data", response.getResultData());
-            data.put("message", response.getErrorMessage());
             data.put("returnCode", response.returnCode());
+            data.put("returnMessage", response.returnMessage());
             data.put("code", response.code());
+            data.put("message", response.message());
+            data.put("msg", response.msg());
+            data.put("errorMessage", response.getErrorMessage());
+            data.put("traceId", response.traceId());
+            data.put("result", response.result());
+            data.put("data", response.data());
+            data.put("resultData", response.getResultData());
         }
         
         try {
