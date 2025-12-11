@@ -7,6 +7,12 @@ pipeline {
         maven 'Maven-3.6.3'
     }
 
+    environment {
+        JAVA_HOME = "${tool 'JDK-17'}"
+        MAVEN_HOME = "${tool 'Maven-3.6.3'}"
+        PATH = "${JAVA_HOME}/bin:${MAVEN_HOME}/bin:${env.PATH}"
+    }
+
     // 推送后由 Webhook 触发；若未配置 Webhook，可保留轮询作为兜底
     triggers {
         githubPush()
@@ -22,6 +28,22 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+        }
+
+        stage('Env Check') {
+            steps {
+                sh '''
+                  echo "JAVA_HOME=$JAVA_HOME"
+                  echo "MAVEN_HOME=$MAVEN_HOME"
+                  which java || true
+                  java -version
+                  if [ -f "$JAVA_HOME/conf/security/java.security" ]; then
+                    ls -l "$JAVA_HOME/conf/security/java.security"
+                  else
+                    echo "java.security not found under $JAVA_HOME"
+                  fi
+                '''
             }
         }
 
