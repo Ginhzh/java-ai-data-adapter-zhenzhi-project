@@ -11,7 +11,6 @@ COPY settings.xml /root/.m2/settings.xml
 
 # 复制Maven配置文件
 COPY pom.xml .
-COPY pom_backup.xml .
 
 # 下载依赖（利用Docker层缓存，并行下载提升速度）
 RUN mvn dependency:go-offline -B -T 4C --fail-at-end
