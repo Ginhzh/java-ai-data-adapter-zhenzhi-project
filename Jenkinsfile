@@ -82,6 +82,10 @@ pipeline {
         }
 
         stage('Build & Push Base Images') {
+            when {
+                // 仅当 Dockerfile.base 有改动时才重建基础镜像
+                changeset pattern: 'Dockerfile.base', comparator: 'ANT'
+            }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'harbor-admin', usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASS')]) {
                     sh '''
