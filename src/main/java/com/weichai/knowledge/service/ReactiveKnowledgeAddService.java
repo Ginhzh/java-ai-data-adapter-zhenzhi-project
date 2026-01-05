@@ -6,6 +6,7 @@ import com.weichai.knowledge.entity.*;
 import com.weichai.knowledge.service.ReactiveKnowledgeHandler;
 import com.weichai.knowledge.utils.ErrorHandler;
 import com.weichai.knowledge.utils.LoggingUtils;
+import com.weichai.knowledge.redis.ReactiveRedisManager;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,12 +34,18 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class ReactiveKnowledgeAddService {
+
+    private static final String IDEMPOTENT_CACHE_NAMESPACE = "knowledge_add";
+    private static final Duration IDEMPOTENT_CACHE_TTL = Duration.ofDays(7);
     
     @Autowired
     private ReactiveKnowledgeHandler reactiveKnowledgeHandler;
     
     @Autowired
     private ErrorHandler errorHandler;
+
+    @Autowired
+    private ReactiveRedisManager reactiveRedisManager;
     
     private final ObjectMapper objectMapper = new ObjectMapper();
     
@@ -79,9 +86,13 @@ public class ReactiveKnowledgeAddService {
      */
     public Mono<Map<String, Object>> processFileAddMessage(Map<String, Object> message) {
         log.info("📋 开始响应式文件添加消息处理流程...");
-        
-        // 步骤1: 验证和提取消息数据 
-        return validateAndExtractMessageData(message)
+
+        final String messageTaskId = extractMessageTaskId(message);
+
+        Mono<Map<String, Object>> cachedResultMono = getCachedSuccessResult(messageTaskId);
+
+        // 步骤1: 验证和提取消息数据
+        Mono<Map<String, Object>> processFlow = validateAndExtractMessageData(message)
             .doOnNext(context -> log.info("步骤1完成，准备查询系统信息"))
             .doOnError(error -> log.error("步骤1失败: {}", error.getMessage(), error))
             // 步骤2: 查询系统信息（自动创建缺失的部门与管理员）
@@ -98,6 +109,7 @@ public class ReactiveKnowledgeAddService {
             .flatMap(this::maintainUnstructuredDocument)
             // 步骤8: 构建最终结果
             .map(this::buildFinalResult)
+            .flatMap(result -> cacheSuccessResult(messageTaskId, result).thenReturn(result))
             // 错误处理
             .onErrorResume(this::handleProcessingError)
             .timeout(Duration.ofMinutes(5)) // 5分钟超时
@@ -105,9 +117,11 @@ public class ReactiveKnowledgeAddService {
                 .filter(throwable -> !(throwable instanceof IllegalArgumentException))
                 .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> {
                     log.error("文件添加处理重试耗尽，最后错误: {}", retrySignal.failure().getMessage());
-                    return new RuntimeException("文件添加处理失败，已重试" + retrySignal.totalRetries() + "次", 
+                    return new RuntimeException("文件添加处理失败，已重试" + retrySignal.totalRetries() + "次",
                         retrySignal.failure());
                 }));
+
+        return cachedResultMono.switchIfEmpty(processFlow);
     }
     
     /**
@@ -198,6 +212,14 @@ public class ReactiveKnowledgeAddService {
             log.info("步骤1: 消息数据提取完成，准备进入步骤2");
             return context;
         });
+    }
+
+    private String extractMessageTaskId(Map<String, Object> message) {
+        if (message == null) {
+            return null;
+        }
+        Object messageTaskIdRaw = message.get("messageTaskId");
+        return messageTaskIdRaw != null ? messageTaskIdRaw.toString() : null;
     }
     
     /**
@@ -314,10 +336,12 @@ public class ReactiveKnowledgeAddService {
         return Mono.fromCallable(() -> {
                 // 构建额外字段数据
                 Map<String, Object> extraFieldData = buildExtraFieldData(
-                    context.systemName, context.filePath, context.fileId, 
+                    context.systemName, context.filePath, context.fileId,
                     context.fileNumber, context.version, context.desc);
-                
-                return objectMapper.writeValueAsString(extraFieldData);
+
+                String extraFieldJson = objectMapper.writeValueAsString(extraFieldData);
+                // 与 Python 行为一致：将所有引号转义为 \"
+                return extraFieldJson.replace("\"", "\\\"");
             })
             .flatMap(extraFieldJson -> 
                 reactiveKnowledgeHandler.importToRepo(
@@ -351,15 +375,12 @@ public class ReactiveKnowledgeAddService {
                 throw new RuntimeException(String.format("推送数据到甄知失败: %s", errorMessage));
             }
             
-            @SuppressWarnings("unchecked")
-            Map<String, Object> resultObj = (Map<String, Object>) Optional
-                .ofNullable(pushResponse.get("result"))
-                .orElseGet(() -> Optional.ofNullable(pushResponse.get("data"))
-                    .orElse(pushResponse.get("resultData")));
-            
-            if (resultObj == null) {
-                log.error("推送成功但未返回文档数据，完整响应: {}", pushResponse);
-                throw new RuntimeException("推送成功但未返回文档数据");
+            Map<String, Object> resultObj = Collections.emptyMap();
+            Object resultRaw = pushResponse.get("result");
+            if (resultRaw instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> resultMap = (Map<String, Object>) resultRaw;
+                resultObj = resultMap;
             }
             
             Object docGuidObj = resultObj.get("docGuid");
@@ -528,6 +549,50 @@ public class ReactiveKnowledgeAddService {
         boolean isNewRepo;
         String docGuid;
     }
+
+    private Mono<Map<String, Object>> getCachedSuccessResult(String messageTaskId) {
+        if (messageTaskId == null || messageTaskId.isBlank()) {
+            return Mono.empty();
+        }
+        String cacheKey = buildIdempotentCacheKey(messageTaskId);
+        return reactiveRedisManager.getMap(cacheKey)
+            .filter(payload -> "success".equals(payload.get("status")))
+            .flatMap(payload -> {
+                Object resultObj = payload.get("result");
+                if (resultObj instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> result = (Map<String, Object>) resultObj;
+                    return Mono.just(result);
+                }
+                return Mono.empty();
+            })
+            .doOnNext(result -> log.info("检测到消息 {} 已处理成功，直接返回缓存结果", messageTaskId));
+    }
+
+    private Mono<Void> cacheSuccessResult(String messageTaskId, Map<String, Object> result) {
+        if (messageTaskId == null || messageTaskId.isBlank() || result == null) {
+            return Mono.empty();
+        }
+        String cacheKey = buildIdempotentCacheKey(messageTaskId);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("status", "success");
+        payload.put("result", result);
+        payload.put("cached_at", LocalDateTime.now().toString());
+
+        return reactiveRedisManager.set(cacheKey, payload, IDEMPOTENT_CACHE_TTL)
+            .doOnSuccess(success -> {
+                if (Boolean.TRUE.equals(success)) {
+                    log.info("已缓存消息 {} 的处理结果用于幂等校验", messageTaskId);
+                } else {
+                    log.warn("缓存消息 {} 处理结果失败", messageTaskId);
+                }
+            })
+            .then();
+    }
+
+    private String buildIdempotentCacheKey(String messageTaskId) {
+        return reactiveRedisManager.generateKey(IDEMPOTENT_CACHE_NAMESPACE, "processed", messageTaskId);
+    }
     
     /**
      * 格式化知识库名称
@@ -592,6 +657,23 @@ public class ReactiveKnowledgeAddService {
             String fileId, String fileNumber, String version, Object desc) {
         Map<String, Object> extraFieldData = new HashMap<>();
         
+        if (!"WPROS_STRUCT".equals(systemName)) {
+            List<String> systemNameList = generatePathList(systemName, filePath);
+            extraFieldData.put("weichai_system", systemNameList);
+            extraFieldData.put("is_system", 1);
+            extraFieldData.put("weichai_fileid", fileId);
+            extraFieldData.put("weichai_file_number", fileNumber);
+            extraFieldData.put("weichai_version", version);
+        } else {
+            extraFieldData.put("weichai_system", Arrays.asList(systemName));
+            extraFieldData.put("weichai_skip_url",
+                String.format("https://wpros.weichai.com/viewer/processes?id=%s&mod=chart", fileId));
+            extraFieldData.put("is_system", 1);
+            extraFieldData.put("weichai_fileid", fileId);
+            extraFieldData.put("weichai_file_number", fileNumber);
+            extraFieldData.put("weichai_version", version);
+        }
+
         if ("SIS".equals(systemName) || "EPC".equals(systemName)) {
             try {
                 if (desc != null) {
@@ -638,21 +720,6 @@ public class ReactiveKnowledgeAddService {
                 log.error("解析SIS系统的desc字段失败: {}", e.getMessage(), e);
                 log.error("原始desc内容: {}", desc);
             }
-        } else if (!"WPROS_STRUCT".equals(systemName)) {
-            List<String> systemNameList = generatePathList(systemName, filePath);
-            extraFieldData.put("weichai_system", systemNameList);
-            extraFieldData.put("is_system", 1);
-            extraFieldData.put("weichai_fileid", fileId);
-            extraFieldData.put("weichai_file_number", fileNumber);
-            extraFieldData.put("weichai_version", version);
-        } else {
-            extraFieldData.put("weichai_system", Arrays.asList(systemName));
-            extraFieldData.put("weichai_skip_url", 
-                String.format("https://wpros.weichai.com/viewer/processes?id=%s&mod=chart", fileId));
-            extraFieldData.put("is_system", 1);
-            extraFieldData.put("weichai_fileid", fileId);
-            extraFieldData.put("weichai_file_number", fileNumber);
-            extraFieldData.put("weichai_version", version);
         }
         
         return extraFieldData;
